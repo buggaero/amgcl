@@ -220,7 +220,7 @@ struct gauss_seidel {
                 for(ptrdiff_t i = beg; i != end; i += inc) {
                     ptrdiff_t l = level[i];
 
-                    for(auto a = row_begin(A, i); a; ++a) {
+                    for(auto a = backend::row_begin(A, i); a; ++a) {
                         ptrdiff_t c = a.col();
 
                         if (forward) {
@@ -279,7 +279,7 @@ struct gauss_seidel {
                         thread_rows[tid] += end - beg;
                         for(ptrdiff_t i = beg; i < end; ++i) {
                             ptrdiff_t j = order[i];
-                            thread_cols[tid] += row_nonzeros(A, j);
+                            thread_cols[tid] += backend::row_nonzeros(A, j);
                         }
                     }
                 }
@@ -304,7 +304,7 @@ struct gauss_seidel {
 
                             ord[tid].push_back(i);
 
-                            for(auto a = row_begin(A, i); a; ++a) {
+                            for(auto a = backend::row_begin(A, i); a; ++a) {
                                 col[tid].push_back(a.col());
                                 val[tid].push_back(a.value());
                             }

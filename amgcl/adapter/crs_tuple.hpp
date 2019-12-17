@@ -174,6 +174,18 @@ struct row_nonzeros_impl< std::tuple<N, PRng, CRng, VRng> > {
 };
 
 template < typename N, typename PRng, typename CRng, typename VRng >
+struct provides_row_offset< std::tuple<N, PRng, CRng, VRng> > : std::true_type {};
+
+template < typename N, typename PRng, typename CRng, typename VRng >
+struct row_offset_impl< std::tuple<N, PRng, CRng, VRng> > {
+    typedef std::tuple<N, PRng, CRng, VRng> Matrix;
+
+    static size_t get(const Matrix &A, size_t row) {
+        return std::get<1>(A)[row];
+    }
+};
+
+template < typename N, typename PRng, typename CRng, typename VRng >
 struct ptr_data_impl< std::tuple<N, PRng, CRng, VRng> > {
     typedef std::tuple<N, PRng, CRng, VRng> Matrix;
     typedef typename std::decay<decltype(std::declval<PRng>()[0])>::type ptr_type;

@@ -64,21 +64,29 @@ void spgemm_saad(const AMatrix &A, const BMatrix &B, CMatrix &C, bool sort = tru
     typedef typename backend::value_type<CMatrix>::type Val;
     typedef ptrdiff_t Idx;
 
-    C.set_size(A.nrows, B.ncols);
+    auto Aptr = backend::ptr_data(A);
+    auto Acol = backend::col_data(A);
+    auto Aval = backend::val_data(A);
+
+    auto Bptr = backend::ptr_data(B);
+    auto Bcol = backend::col_data(B);
+    auto Bval = backend::val_data(B);
+
+    C.set_size(backend::rows(A), backend::cols(B));
     C.ptr[0] = 0;
 
 #pragma omp parallel
     {
-        std::vector<ptrdiff_t> marker(B.ncols, -1);
+        std::vector<ptrdiff_t> marker(C.ncols, -1);
 
 #pragma omp for
-        for(Idx ia = 0; ia < static_cast<Idx>(A.nrows); ++ia) {
+        for(Idx ia = 0; ia < static_cast<Idx>(C.nrows); ++ia) {
             Idx C_cols = 0;
-            for(Idx ja = A.ptr[ia], ea = A.ptr[ia+1]; ja < ea; ++ja) {
-                Idx ca = A.col[ja];
+            for(Idx ja = Aptr[ia], ea = Aptr[ia+1]; ja < ea; ++ja) {
+                Idx ca = Acol[ja];
 
-                for(Idx jb = B.ptr[ca], eb = B.ptr[ca+1]; jb < eb; ++jb) {
-                    Idx cb = B.col[jb];
+                for(Idx jb = Bptr[ca], eb = Bptr[ca+1]; jb < eb; ++jb) {
+                    Idx cb = Bcol[jb];
                     if (marker[cb] != ia) {
                         marker[cb]  = ia;
                         ++C_cols;
@@ -93,20 +101,20 @@ void spgemm_saad(const AMatrix &A, const BMatrix &B, CMatrix &C, bool sort = tru
 
 #pragma omp parallel
     {
-        std::vector<ptrdiff_t> marker(B.ncols, -1);
+        std::vector<ptrdiff_t> marker(C.ncols, -1);
 
 #pragma omp for
-        for(Idx ia = 0; ia < static_cast<Idx>(A.nrows); ++ia) {
+        for(Idx ia = 0; ia < static_cast<Idx>(C.nrows); ++ia) {
             Idx row_beg = C.ptr[ia];
             Idx row_end = row_beg;
 
-            for(Idx ja = A.ptr[ia], ea = A.ptr[ia+1]; ja < ea; ++ja) {
-                Idx ca = A.col[ja];
-                Val va = A.val[ja];
+            for(Idx ja = Aptr[ia], ea = Aptr[ia+1]; ja < ea; ++ja) {
+                Idx ca = Acol[ja];
+                Val va = Aval[ja];
 
-                for(Idx jb = B.ptr[ca], eb = B.ptr[ca+1]; jb < eb; ++jb) {
-                    Idx cb = B.col[jb];
-                    Val vb = B.val[jb];
+                for(Idx jb = Bptr[ca], eb = Bptr[ca+1]; jb < eb; ++jb) {
+                    Idx cb = Bcol[jb];
+                    Val vb = Bval[jb];
 
                     if (marker[cb] < row_beg) {
                         marker[cb] = row_end;
@@ -210,10 +218,10 @@ Idx* merge_rows(
     return col3;
 }
 
-template <class Idx>
+template <class IdxA, class IdxB, class Idx>
 Idx prod_row_width(
-        const Idx *acol, const Idx *acol_end,
-        const Idx *bptr, const Idx *bcol,
+        const IdxA *acol, const IdxA *acol_end,
+        const IdxB *bptr, const IdxB *bcol,
         Idx *tmp_col1, Idx *tmp_col2, Idx *tmp_col3
         )
 {
@@ -289,10 +297,10 @@ Idx prod_row_width(
             ) - tmp_col2;
 }
 
-template <class Idx, class Val>
+template <class IdxA, class IdxB, class Idx, class ValA, class ValB, class Val>
 void prod_row(
-        const Idx *acol, const Idx *acol_end, const Val *aval,
-        const Idx *bptr, const Idx *bcol, const Val *bval,
+        const IdxA *acol, const IdxA *acol_end, const ValA *aval,
+        const IdxB *bptr, const IdxB *bcol, const ValB *bval,
         Idx *out_col, Val *out_val,
         Idx *tm2_col, Val *tm2_val,
         Idx *tm3_col, Val *tm3_val
@@ -308,9 +316,9 @@ void prod_row(
         Idx ac = *acol;
         Val av = *aval;
 
-        const Val *bv = bval + bptr[ac];
-        const Idx *bc = bcol + bptr[ac];
-        const Idx *be = bcol + bptr[ac+1];
+        const ValB *bv = bval + bptr[ac];
+        const IdxB *bc = bcol + bptr[ac];
+        const IdxB *be = bcol + bptr[ac+1];
 
         while(bc != be) {
             *out_col++ = *bc++;
@@ -413,18 +421,29 @@ void spgemm_rmerge(const AMatrix &A, const BMatrix &B, CMatrix &C) {
 
     Idx max_row_width = 0;
 
+    auto Aptr = backend::ptr_data(A);
+    auto Acol = backend::col_data(A);
+    auto Aval = backend::val_data(A);
+
+    auto Bptr = backend::ptr_data(B);
+    auto Bcol = backend::col_data(B);
+    auto Bval = backend::val_data(B);
+
+    C.set_size(backend::rows(A), backend::cols(B));
+    C.ptr[0] = 0;
+
 #pragma omp parallel
     {
         Idx my_max = 0;
 
 #pragma omp for
-        for(int i = 0; i < static_cast<Idx>(A.nrows); ++i) {
-            Idx row_beg = A.ptr[i];
-            Idx row_end = A.ptr[i+1];
+        for(int i = 0; i < static_cast<Idx>(C.nrows); ++i) {
+            Idx row_beg = Aptr[i];
+            Idx row_end = Aptr[i+1];
             Idx row_width = 0;
             for(Idx j = row_beg; j < row_end; ++j) {
-                Idx a_col = A.col[j];
-                row_width += B.ptr[a_col + 1] - B.ptr[a_col];
+                Idx a_col = Acol[j];
+                row_width += Bptr[a_col + 1] - Bptr[a_col];
             }
             my_max = std::max(my_max, row_width);
         }
@@ -447,10 +466,6 @@ void spgemm_rmerge(const AMatrix &A, const BMatrix &B, CMatrix &C) {
         tmp_val[i].resize(2 * max_row_width);
     }
 
-    C.set_size(A.nrows, B.ncols);
-    C.ptr[0] = 0;
-
-
 #pragma omp parallel
     {
 #ifdef _OPENMP
@@ -462,12 +477,12 @@ void spgemm_rmerge(const AMatrix &A, const BMatrix &B, CMatrix &C) {
         Idx *t_col = &tmp_col[tid][0];
 
 #pragma omp for
-        for(Idx i = 0; i < static_cast<Idx>(A.nrows); ++i) {
-            Idx row_beg = A.ptr[i];
-            Idx row_end = A.ptr[i+1];
+        for(Idx i = 0; i < static_cast<Idx>(C.nrows); ++i) {
+            Idx row_beg = Aptr[i];
+            Idx row_end = Aptr[i+1];
 
             C.ptr[i+1] = prod_row_width(
-                    A.col + row_beg, A.col + row_end, B.ptr, B.col,
+                    Acol + row_beg, Acol + row_end, Bptr, Bcol,
                     t_col, t_col + max_row_width, t_col + 2 * max_row_width
                     );
         }
@@ -487,13 +502,13 @@ void spgemm_rmerge(const AMatrix &A, const BMatrix &B, CMatrix &C) {
         Val *t_val = tmp_val[tid].data();
 
 #pragma omp for
-        for(Idx i = 0; i < static_cast<Idx>(A.nrows); ++i) {
-            Idx row_beg = A.ptr[i];
-            Idx row_end = A.ptr[i+1];
+        for(Idx i = 0; i < static_cast<Idx>(C.nrows); ++i) {
+            Idx row_beg = Aptr[i];
+            Idx row_end = Aptr[i+1];
 
             prod_row(
-                    A.col + row_beg, A.col + row_end, A.val + row_beg,
-                    B.ptr, B.col, B.val,
+                    Acol + row_beg, Acol + row_end, Aval + row_beg,
+                    Bptr, Bcol, Bval,
                     C.col + C.ptr[i], C.val + C.ptr[i],
                     t_col, t_val, t_col + max_row_width, t_val + max_row_width
                     );
